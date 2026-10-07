@@ -34,7 +34,7 @@ Users can upload research PDFs and monitor their processing status.
 ### 🧠 RAG Pipeline
 
 EduPilot follows a complete retrieval-augmented generation pipeline:
-![Document Upload](screenshots/document-upload.png)
+![RAG Pipeline](screenshots/RAG.png)
 ---
 
 ### 💬 Grounded Question Answering
