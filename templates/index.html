@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EduPilot AI</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <h1>EduPilot AI</h1>
+    <p>Ask questions of your research PDFs. Answers cite filename and page.</p>
+  </header>
+
+  <div class="layout">
+    <aside class="library" aria-label="Documents">
+      <h2>Library</h2>
+      <form id="uploadForm">
+        <label class="filepick" for="fileInput">
+          <span id="fileLabel">Choose a PDF</span>
+          <input id="fileInput" type="file" accept="application/pdf,.pdf">
+        </label>
+        <button type="submit" id="uploadButton">Upload and index</button>
+      </form>
+      <p id="uploadStatus" class="status" role="status"></p>
+      <ul id="documentList" class="doclist"></ul>
+    </aside>
+
+    <main>
+      <form id="askForm" class="ask">
+        <label for="questionInput">Question</label>
+        <textarea id="questionInput" rows="3" maxlength="2000"
+                  placeholder="e.g. What dataset did the authors evaluate on?"></textarea>
+        <button type="submit" id="askButton">Ask</button>
+      </form>
+
+      <section id="answerPanel" class="answer" hidden aria-live="polite">
+        <h2>Answer</h2>
+        <div id="answer"></div>
+        <h3>Sources</h3>
+        <ol id="sources" class="sources"></ol>
+      </section>
+      <p id="askError" class="error" role="alert" hidden></p>
+
+      <section class="history">
+        <h2>Query history</h2>
+        <ul id="historyList"></ul>
+      </section>
+    </main>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
