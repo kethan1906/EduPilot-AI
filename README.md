@@ -1,410 +1,570 @@
-\# EduPilot AI
+# 🎓 EduPilot AI
 
+### AI-Powered Research Assistant for Grounded Document Question Answering
 
+EduPilot AI is a **Retrieval-Augmented Generation (RAG)** application that allows users to upload research PDFs and ask natural-language questions about their content.
 
-An academic research assistant. Upload a research PDF, ask a question, and get an answer that is generated only from the retrieved passages of your documents, with the filename and page of every source.
+Instead of relying only on an LLM's general knowledge, EduPilot retrieves the most relevant document chunks using **semantic vector search** and provides them to a **Mistral LLM** as context. This helps produce answers grounded in the uploaded documents and allows the application to display the relevant sources.
 
+---
 
+## ✨ What Can EduPilot Do?
 
-\*\*Stack:\*\* Python, Flask (REST APIs), RAG, Mistral LLM via Ollama, NLP (cleaning + chunking), Sentence Transformers (`BAAI/bge-small-en-v1.5`), MongoDB + MongoDB Atlas Vector Search, PyMuPDF.
+* 📄 Upload research PDFs
+* 🔎 Extract and clean document text
+* ✂️ Split documents into overlapping chunks
+* 🧠 Generate semantic embeddings using Sentence Transformers
+* ⚡ Retrieve relevant chunks using MongoDB Atlas Vector Search
+* 🤖 Generate grounded answers using Mistral through Ollama
+* 📚 Display source document and page information
+* 📝 Store query and answer history
+* 🚫 Avoid unnecessary LLM calls when relevant context is unavailable
+* 🌐 Expose functionality through Flask REST APIs
 
+---
 
+## 🖥️ Application Preview
 
-\## How it works
+### 📄 Document Upload
+![Document Upload](screenshots/document-upload.png)
+Users can upload research PDFs and monitor their processing status.
 
+---
 
+### 🧠 RAG Pipeline
+
+EduPilot follows a complete retrieval-augmented generation pipeline:
+![Document Upload](screenshots/document-upload.png)
+---
+
+### 💬 Grounded Question Answering
+
+The system retrieves relevant document sections and uses them as context for Mistral to generate an answer with source information.
+![Grounded Answer](screenshots/grounded-answer.png)
+---
+
+# 🏗️ Architecture
 
 ```text
-
-Upload:  PDF -> extract text per page -> clean -> chunk (450 words, 75 overlap)
-
-&#x20;            -> embed each chunk -> store chunks + vectors in MongoDB
-
-
-
-Ask:     question -> embed (same model) -> Atlas $vectorSearch (top 5 chunks)
-
-&#x20;            -> build labelled context -> Mistral via Ollama (answer only from context)
-
-&#x20;            -> answer + sources -> saved in query history
-
+                         ┌──────────────────────┐
+                         │       User           │
+                         │  Upload PDF / Query  │
+                         └──────────┬───────────┘
+                                    │
+                                    ▼
+                         ┌──────────────────────┐
+                         │     Flask REST API   │
+                         └──────────┬───────────┘
+                                    │
+                  ┌─────────────────┴─────────────────┐
+                  │                                   │
+             Upload PDF                         Ask Question
+                  │                                   │
+                  ▼                                   ▼
+        ┌─────────────────┐                 ┌─────────────────┐
+        │  PyMuPDF        │                 │ Question        │
+        │  Text Extraction│                 │ Embedding       │
+        └────────┬────────┘                 └────────┬────────┘
+                 │                                   │
+                 ▼                                   ▼
+        ┌─────────────────┐                 ┌─────────────────┐
+        │ Text Cleaning   │                 │ MongoDB Atlas   │
+        │ & Chunking      │                 │ Vector Search   │
+        └────────┬────────┘                 └────────┬────────┘
+                 │                                   │
+                 ▼                                   ▼
+        ┌─────────────────┐                 ┌─────────────────┐
+        │ BGE Embeddings  │                 │ Relevant        │
+        │ 384 dimensions  │                 │ Document Chunks │
+        └────────┬────────┘                 └────────┬────────┘
+                 │                                   │
+                 ▼                                   │
+        ┌─────────────────┐                          │
+        │ MongoDB Atlas   │◄─────────────────────────┘
+        │ Chunks + Vector │
+        └────────┬────────┘
+                 │
+                 ▼
+        ┌──────────────────────────┐
+        │ Context + User Question  │
+        └────────────┬─────────────┘
+                     │
+                     ▼
+        ┌──────────────────────────┐
+        │ Mistral via Ollama       │
+        │ Local LLM                │
+        └────────────┬─────────────┘
+                     │
+                     ▼
+        ┌──────────────────────────┐
+        │ Grounded Answer +        │
+        │ Sources + Query History  │
+        └──────────────────────────┘
 ```
 
+---
 
+# 🔄 How It Works
 
-| Step     | Module                                 | What / why / data flow                                                                                                                                 |
+## 1. Document Upload
 
-| -------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+The user uploads a PDF through the web interface.
 
-| Validate | `routes/api.py`                        | Rejects missing files, non-PDFs and empty questions with `400` before any work happens. Routes stay thin and delegate to services.                     |
+The Flask API receives the file and passes it to the document service.
 
-| Extract  | `utils/pdf\_utils.py`                   | PyMuPDF reads the upload from memory, page by page. Page numbers are kept so answers can cite a page. Pages with no text are skipped.                  |
+---
 
-| Clean    | `utils/text\_utils.clean\_text`          | Collapses whitespace so PDF line breaks don't distort chunk boundaries.                                                                                |
+## 2. Text Extraction
 
-| Chunk    | `utils/text\_utils.chunk\_text`          | Word windows of 450 with 75 overlap, so an answer straddling a boundary appears whole in at least one chunk.                                           |
+EduPilot uses **PyMuPDF** to extract text from the PDF while preserving page information.
 
-| Embed    | `services/embedding\_service.py`        | Same model for chunks and questions (required for comparable vectors), L2-normalised, converted to plain lists for BSON. The model loads on first use. |
+The page number is retained so that retrieved chunks can later be shown with their source page.
 
-| Store    | `services/document\_service.py`         | `documents` (metadata + status), `chunks` (text, page, embedding). Status goes `processing` -> `ready` / `failed`.                                     |
+---
 
-| Retrieve | `services/rag\_service.retrieve\_chunks` | Embeds the question and runs `$vectorSearch` (`numCandidates` 50, `limit` 5), returning each chunk's similarity score.                                 |
+## 3. Text Cleaning & Chunking
 
-| Generate | `services/rag\_service.generate\_answer` | System prompt: answer only from the context, say so if the information is missing, never invent facts. Mistral runs locally through Ollama.            |
+Extracted text is cleaned and divided into smaller overlapping chunks.
 
-| Log      | `services/rag\_service.answer\_question` | Saves question, answer, and `{chunk\_id, score}` for each retrieved chunk in `queries`. If retrieval is empty the LLM is not called.                    |
+Current configuration:
 
+| Parameter     |     Value |
+| ------------- | --------: |
+| Chunk size    | 450 words |
+| Chunk overlap |  75 words |
 
+The overlap helps preserve context when an important sentence falls near a chunk boundary.
 
-\## Setup
+---
 
+## 4. Embedding Generation
 
-
-Requires Python 3.10+, a MongoDB Atlas cluster (free M0 works), and Ollama with the Mistral model installed locally.
-
-
-
-```bash
-
-git clone <your-repo-url> edupilot-ai \&\& cd edupilot-ai
-
-python -m venv .venv \&\& source .venv/bin/activate     # Windows: .venv\\Scripts\\activate
-
-pip install -r requirements.txt
-
-cp .env.example .env                                   # then edit .env
-
-```
-
-
-
-\## Ollama setup
-
-
-
-Install Ollama and make sure the Mistral model is available locally:
-
-
-
-```bash
-
-ollama pull mistral
-
-```
-
-
-
-Start Ollama before running EduPilot.
-
-
-
-By default, the application connects to:
-
-
+Each chunk is converted into a semantic vector using:
 
 ```text
-
-http://localhost:11434
-
+BAAI/bge-small-en-v1.5
 ```
 
+The embeddings are normalized and stored along with the corresponding document metadata.
 
+---
 
-The application uses the local `mistral:latest` model through Ollama, so no Mistral API key is required.
+## 5. Vector Storage
 
+EduPilot stores document metadata, chunks, embeddings, and query history in **MongoDB Atlas**.
 
+The chunk embeddings are searched using **MongoDB Atlas Vector Search**.
 
-\## Environment variables (`.env`)
+The vector index uses:
 
-
-
-| Variable        | Required                      | Meaning                 |
-
-| --------------- | ----------------------------- | ----------------------- |
-
-| `MONGODB\_URI`   | yes                           | Atlas connection string |
-
-| `MONGODB\_DB`    | no (`edupilot`)               | Database name           |
-
-| `OLLAMA\_HOST`   | no (`http://localhost:11434`) | Local Ollama server     |
-
-| `OLLAMA\_MODEL`  | no (`mistral:latest`)         | Local Mistral model     |
-
-| `MAX\_UPLOAD\_MB` | no (`25`)                     | Upload size limit       |
-
-| `FLASK\_DEBUG`   | no (`0`)                      | Flask debug mode        |
-
-
-
-Missing variables produce a clear `503` JSON error naming the variable; they never crash at import.
-
-
-
-\## MongoDB Atlas configuration
-
-
-
-Create a free cluster, add a database user, and under Network Access allow your IP.
-
-
-
-Put the connection string in `MONGODB\_URI`.
-
-
-
-Create the Vector Search index on the `chunks` collection, either automatically:
-
-
-
-```bash
-
-python scripts/create\_vector\_index.py
-
+```text
+Index:       chunk_vector_index
+Field:       embedding
+Dimensions:  384
+Similarity:  cosine
 ```
 
+---
 
+## 6. Semantic Retrieval
 
-or in the Atlas UI (Atlas Search -> Create Search Index -> Atlas Vector Search -> JSON editor, database `edupilot`, collection `chunks`, index name `chunk\_vector\_index`):
+When a user asks a question, the same embedding model converts the question into a vector.
 
+MongoDB Atlas Vector Search then retrieves the most semantically relevant chunks.
 
+The current retrieval configuration uses:
+
+```text
+numCandidates = 50
+limit = 5
+```
+
+The retrieved chunks contain information such as:
+
+* document filename
+* page number
+* chunk text
+* vector similarity score
+
+---
+
+## 7. Grounded Generation
+
+The retrieved content is combined into a context prompt:
+
+```text
+Research Context
+       +
+User Question
+       ↓
+Mistral
+       ↓
+Grounded Answer
+```
+
+Mistral runs locally through **Ollama**, so the application does not require a hosted Mistral API key.
+
+---
+
+## 8. Source Attribution
+
+Retrieved chunks retain their original document and page information.
+
+The final response can therefore identify the source document and relevant page instead of returning an unsupported answer.
+
+If the retrieved context does not contain enough information to answer a question, EduPilot responds that the information is not present in the provided research context rather than relying on unrelated general knowledge.
+
+---
+
+# 🧠 Why RAG?
+
+A conventional LLM can answer questions using its pretrained knowledge, but that does not guarantee that the answer comes from the user's documents.
+
+EduPilot uses RAG to introduce a retrieval step:
+
+```text
+User Question
+      ↓
+Question Embedding
+      ↓
+Vector Search
+      ↓
+Relevant Document Chunks
+      ↓
+Context
+      ↓
+Mistral
+      ↓
+Grounded Answer
+```
+
+This approach is useful for research documents because the system can retrieve relevant evidence before generating an answer.
+
+---
+
+# 🛠️ Technology Stack
+
+| Layer           | Technology                     |
+| --------------- | ------------------------------ |
+| Language        | Python                         |
+| Backend         | Flask                          |
+| API             | REST                           |
+| LLM             | Mistral                        |
+| LLM Runtime     | Ollama                         |
+| RAG             | Retrieval-Augmented Generation |
+| Embeddings      | Sentence Transformers          |
+| Embedding Model | `BAAI/bge-small-en-v1.5`       |
+| Vector Database | MongoDB Atlas Vector Search    |
+| Database        | MongoDB                        |
+| PDF Processing  | PyMuPDF                        |
+| Frontend        | HTML, CSS, JavaScript          |
+| Testing         | pytest / unittest              |
+
+---
+
+# 📡 REST API
+
+### Upload Document
+
+```http
+POST /api/documents
+```
+
+Uploads and processes a PDF document.
+
+---
+
+### Ask a Question
+
+```http
+POST /api/query
+```
+
+Example request:
 
 ```json
-
 {
-
-&#x20; "fields": \[
-
-&#x20;   {
-
-&#x20;     "type": "vector",
-
-&#x20;     "path": "embedding",
-
-&#x20;     "numDimensions": 384,
-
-&#x20;     "similarity": "cosine"
-
-&#x20;   }
-
-&#x20; ]
-
+  "question": "What challenges do first-year college students face?"
 }
-
 ```
 
+The system retrieves relevant document chunks and generates a grounded response.
 
+---
 
-384 is the output size of `bge-small-en-v1.5`; if you change the model, change this number.
+### Get Documents
 
+```http
+GET /api/documents
+```
 
+Returns uploaded documents and their processing status.
 
-Wait until the index shows Active before asking questions. A missing/building index is the most common reason for "could not find relevant information" or a `503` retrieval error.
+---
 
+### Query History
 
+```http
+GET /api/queries
+```
 
-The first upload downloads the embedding model (\~130 MB) from Hugging Face, so it needs internet and is slow once.
+Returns previously submitted questions and generated answers.
 
+---
 
+# ⚙️ Local Setup
 
-\## Run
-
-
-
-Make sure Ollama is running, then start EduPilot:
-
-
+## 1. Clone the Repository
 
 ```bash
-
-python app.py          # http://127.0.0.1:5000   (FLASK\_DEBUG=1 for debug mode)
-
+git clone https://github.com/kethan1906/EduPilot-AI.git
+cd EduPilot-AI
 ```
 
+---
 
+## 2. Create a Virtual Environment
 
-\## API
+### Windows
 
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
 
-
-\### `POST /api/documents`
-
-
-
-Multipart form, field `file`:
-
-
+### Linux / macOS
 
 ```bash
-
-curl -F "file=@paper.pdf" http://127.0.0.1:5000/api/documents
-
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
+---
 
+## 3. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+For development/testing:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+---
+
+# 🤖 Configure Ollama
+
+Install Ollama and download the Mistral model:
+
+```bash
+ollama pull mistral
+```
+
+The application expects Ollama to run locally at:
 
 ```text
-
-201 {"document\_id":"<id>","filename":"paper.pdf","chunk\_count":<n>}
-
-400 {"error":"No file uploaded"} | {"error":"Only PDF files are supported"}
-
-422 {"error":"..."}  corrupt / password-protected / no extractable text
-
+http://localhost:11434
 ```
 
-
-
-\### `POST /api/query`
-
-
-
-JSON:
-
-
+Verify the model:
 
 ```bash
-
-curl -X POST http://127.0.0.1:5000/api/query -H "Content-Type: application/json" \\
-
-&#x20;    -d '{"question": "What method do the authors propose?"}'
-
+ollama list
 ```
 
+The default configuration uses:
 
+```env
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=mistral:latest
+```
+
+---
+
+# 🍃 Configure MongoDB Atlas
+
+Create a MongoDB Atlas cluster and obtain its connection string.
+
+Create a `.env` file based on `.env.example`:
+
+```env
+MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
+MONGODB_DB=edupilot
+
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=mistral:latest
+
+MAX_UPLOAD_MB=25
+FLASK_DEBUG=0
+```
+
+### Vector Search Index
+
+Create the Atlas Vector Search index:
 
 ```text
-
-200 {"answer":"...","sources":\[{"filename":"paper.pdf","page":3,"score":0.87}, ...]}
-
-400 {"error":"Question is required"}
-
-502 LLM request failed | 503 missing config / MongoDB unreachable / vector index unavailable
-
+Index Name: chunk_vector_index
+Path: embedding
+Dimensions: 384
+Similarity: cosine
 ```
 
+---
 
+# ▶️ Run the Application
 
-Two read endpoints are additions to the original specification, used by the dashboard to show stored metadata and history:
-
-
-
-\* `GET /api/documents`
-
-\* `GET /api/queries?limit=20`
-
-
-
-\## Tests
-
-
+Start the Flask application:
 
 ```bash
-
-python -m unittest -v
-
-pip install -r requirements-dev.txt \&\& python -m pytest
-
+python app.py
 ```
 
-
-
-Unit tests replace only the boundaries (MongoDB, embedding model, and local Ollama/Mistral client) with in-memory fakes; chunking, cleaning, validation, ingestion flow, pipeline construction, prompt building and error handling run for real.
-
-
-
-The real-PDF extraction tests are skipped unless PyMuPDF and reportlab are installed.
-
-
-
-\## Project structure
-
-
+Open:
 
 ```text
-
-app.py                         Flask app factory, error handlers, dashboard route
-
-config.py                      RAG parameters, env helpers, Ollama configuration
-
-exceptions.py                  Errors with HTTP status codes
-
-routes/api.py                  REST endpoints (validation only)
-
-services/document\_service.py   Ingestion pipeline, document listing
-
-services/embedding\_service.py  Sentence Transformer wrapper
-
-services/rag\_service.py        Retrieval, context, local Mistral/Ollama call, query history
-
-db/mongo.py                    Lazy MongoDB connection
-
-utils/pdf\_utils.py             PDF text extraction
-
-utils/text\_utils.py            Cleaning and chunking
-
-scripts/create\_vector\_index.py Creates the Atlas vector index
-
-templates/ static/             Dashboard (HTML / CSS / fetch-based JS)
-
-tests/                         Unit tests
-
+http://127.0.0.1:5000
 ```
 
+---
+
+# 🧪 Testing
+
+EduPilot includes automated tests for the API, document processing, RAG service, and text utilities.
+
+Run:
+
+```bash
+python -m pytest -v
+```
+
+The project was tested with the complete test suite before being published.
+
+---
+
+# 📁 Project Structure
+
+```text
+EduPilot-AI/
+│
+├── db/
+│   ├── __init__.py
+│   └── mongo.py
+│
+├── routes/
+│   ├── __init__.py
+│   └── api.py
+│
+├── services/
+│   ├── __init__.py
+│   ├── document_service.py
+│   ├── embedding_service.py
+│   └── rag_service.py
+│
+├── scripts/
+│   └── create_vector_index.py
+│
+├── static/
+│   ├── css/
+│   │   └── style.css
+│   └── js/
+│       └── app.js
+│
+├── templates/
+│   └── index.html
+│
+├── tests/
+│   ├── fakes.py
+│   ├── test_api.py
+│   ├── test_document_service.py
+│   ├── test_rag_service.py
+│   └── test_text_utils.py
+│
+├── utils/
+│   ├── pdf_utils.py
+│   └── text_utils.py
+│
+├── screenshots/
+│   ├── document-upload.png
+│   ├── grounded-answer.png
+│   └── RAG.png
+│
+├── app.py
+├── config.py
+├── exceptions.py
+├── requirements.txt
+├── requirements-dev.txt
+├── .env.example
+└── README.md
+```
+
+---
+
+# 🔐 Security
+
+Sensitive configuration is intentionally excluded from version control.
+
+The repository ignores:
+
+```text
+.env
+.venv/
+__pycache__/
+```
+
+Never commit MongoDB credentials, API keys, passwords, or other secrets.
+
+---
+
+# ⚠️ Current Limitations
+
+* PDF ingestion currently focuses on text extraction.
+* Image-heavy or scanned PDFs may require OCR support.
+* Local Mistral inference depends on the available system hardware.
+* MongoDB Atlas Vector Search requires a configured Atlas cluster and vector index.
+* Answer quality depends on document quality, chunking, retrieval, and LLM behavior.
+
+---
+
+# 🎯 Project Highlights
+
+### Retrieval-Augmented Generation
+
+Combines semantic retrieval with LLM generation to answer questions using uploaded research documents.
+
+### Semantic Search
+
+Uses Sentence Transformer embeddings and MongoDB Atlas Vector Search instead of simple keyword matching.
+
+### Grounded Responses
+
+Retrieved document chunks are supplied as context to Mistral, with document and page information retained for source attribution.
+
+### Local LLM Inference
+
+Mistral runs through Ollama locally, avoiding dependency on a hosted Mistral API.
+
+### Modular Backend
+
+The application separates API routes, document processing, embeddings, database operations, and RAG logic into dedicated modules.
+
+### Automated Testing
+
+The repository includes unit/API tests covering core application behavior.
+
+---
+
+# 👨‍💻 Author
+
+**M. Srinikethan**
+
+B.Tech — Data Science
+
+GitHub: [@kethan1906](https://github.com/kethan1906)
 
 
-\## Differences from the original code listing
+---
 
-
-
-Mongo client, embedding model and local Ollama client are created on first use instead of at import, so missing config gives a clear error rather than a startup crash.
-
-
-
-One `build\_context()` is used (the listing defined it but `answer\_question` used a second inline format).
-
-
-
-A PDF with no extractable text is marked `failed` (422) rather than `ready` with zero chunks; partial chunks are removed if ingestion fails.
-
-
-
-Empty retrieval is also written to query history.
-
-
-
-`chunk\_text` rejects `overlap >= chunk\_size` (it would loop forever).
-
-
-
-The Mistral LLM is run locally through Ollama instead of using the hosted Mistral API.
-
-
-
-\## Limitations
-
-
-
-Text PDFs only: scanned/image PDFs have no OCR and are rejected.
-
-
-
-Retrieval searches all uploaded documents together; there are no per-document filters, users or authentication.
-
-
-
-Chunking is by words within each page, so a passage spanning a page break is split.
-
-
-
-No similarity-score threshold: the top 5 chunks are always sent to the LLM; the prompt, not a filter, handles irrelevant context.
-
-
-
-Ingestion runs synchronously inside the upload request; large PDFs take a while.
-
-
-
-No retrieval-quality or answer-quality evaluation has been performed, so no accuracy claims are made.
-
-
-
+⭐ If you find the project interesting, consider starring the repository.
