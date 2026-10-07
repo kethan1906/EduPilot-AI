@@ -23,25 +23,25 @@ Instead of relying only on an LLM's general knowledge, EduPilot retrieves the mo
 
 ---
 
+
+
 ## 🖥️ Application Preview
 
 ### 📄 Document Upload
-![Document Upload](screenshots/document-upload.png)
-Users can upload research PDFs and monitor their processing status.
 
----
+![Document Upload](screenshots/document-upload.png)
 
 ### 🧠 RAG Pipeline
 
-EduPilot follows a complete retrieval-augmented generation pipeline:
 ![RAG Pipeline](screenshots/RAG.png)
----
 
 ### 💬 Grounded Question Answering
 
-The system retrieves relevant document sections and uses them as context for Mistral to generate an answer with source information.
 ![Grounded Answer](screenshots/grounded-answer.png)
----
+
+
+
+## ✨ What Can EduPilot Do?
 
 # 🏗️ Architecture
 
